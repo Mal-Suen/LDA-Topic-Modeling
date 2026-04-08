@@ -21,18 +21,28 @@ def cmd_analyze(args):
     if args.stopwords:
         stopwords = LDATopicModel.load_stopwords(args.stopwords)
 
+    # 确定主题数
+    num_topics = args.num_topics if args.num_topics else 10
+    auto_find_k = args.auto_k
+    
     # 初始化模型
     model = LDATopicModel(
-        num_topics=args.num_topics,
+        num_topics=num_topics,
         passes=args.passes,
         iterations=args.iterations,
         random_state=args.seed,
-        custom_stopwords=stopwords
+        custom_stopwords=stopwords,
+        ngram_mode=args.ngram,
     )
 
     # 运行分析
     output_dir = args.output or "output"
-    results = model.run_analysis(args.input, output_dir=output_dir)
+    
+    if auto_find_k:
+        k_range = range(args.k_min, args.k_max + 1, args.k_step)
+        results = model.run_analysis(args.input, output_dir=output_dir, auto_find_k=True, k_range=k_range)
+    else:
+        results = model.run_analysis(args.input, output_dir=output_dir)
     
     # 保存模型（可选）
     if args.save_model:
@@ -117,8 +127,8 @@ def main():
     # analyze 命令
     analyze_parser = subparsers.add_parser('analyze', help='执行主题建模分析')
     analyze_parser.add_argument('input', help='输入文本文件（每行一篇文档）')
-    analyze_parser.add_argument('-k', '--num-topics', type=int, default=3,
-                               help='主题数量 (默认: 3)')
+    analyze_parser.add_argument('-k', '--num-topics', type=int, default=None,
+                               help='主题数量 (默认: 自动搜索)')
     analyze_parser.add_argument('-p', '--passes', type=int, default=15,
                                help='训练轮数 (默认: 15)')
     analyze_parser.add_argument('-i', '--iterations', type=int, default=100,
@@ -129,6 +139,17 @@ def main():
                                help='输出目录 (默认: output)')
     analyze_parser.add_argument('--save-model', type=str,
                                help='保存模型到指定目录')
+    analyze_parser.add_argument('--auto-k', action='store_true',
+                               help='自动搜索最优主题数')
+    analyze_parser.add_argument('--k-min', type=int, default=5,
+                               help='最小主题数 (默认: 5)')
+    analyze_parser.add_argument('--k-max', type=int, default=20,
+                               help='最大主题数 (默认: 20)')
+    analyze_parser.add_argument('--k-step', type=int, default=1,
+                               help='搜索步长 (默认: 1)')
+    analyze_parser.add_argument('--ngram', type=str, default='auto',
+                               choices=['none', 'auto', 'strict'],
+                               help='N-gram 模式 (默认: auto)')
 
     # find-topics 命令
     ft_parser = subparsers.add_parser('find-topics', help='寻找最优主题数')

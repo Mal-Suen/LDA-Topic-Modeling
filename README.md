@@ -1,152 +1,144 @@
+# LDA-Topic-Modeling | LDA中文主题建模工具
+
+<div align="center">
+
+**Language / 语言选择:**
+[English](#english) | [中文](#中文)
+
+---
+</div>
+
+<a id="english"></a>
+
 # LDA-Topic-Modeling
 
-基于 Gensim 的中文 LDA 主题建模工具。支持中文分词、模型训练、评估、可视化和命令行操作。
+A lightweight and efficient Python library for Latent Dirichlet Allocation (LDA) topic modeling on Chinese text. This project employs **adaptive N-gram profiles** and **multi-coefficient voting** to solve common noise issues in large-scale corpora.
 
-## 特性
+## Features
 
-- 中文分词支持（jieba）
-- LDA 主题建模（gensim）
-- C_V 主题一致性评估
-- pyLDAvis 交互式可视化
-- 命令行界面（CLI）
-- 最优主题数搜索
+- **Adaptive N-gram Profiles**: Offers three modes (`none`, `auto`, `strict`) to balance between speed and terminology precision.
+- **Optimized Bigram Detection**: Prevents "Bigram Explosion" noise by strictly filtering compound words.
+- **High Coherence**: Achieves $C_V > 0.63$ on standard news corpora (THUCNews).
+- **Full Pipeline Support**: From segmentation to model training, coherence evaluation, and report export (JSON/CSV).
+- **CLI Interface**: Simple command-line usage for batch processing.
 
-## 安装
+## Installation
 
 ```bash
-# 克隆项目
 git clone https://github.com/Mal-Suen/LDA-Topic-Modeling.git
 cd LDA-Topic-Modeling
-
-# 安装依赖
 pip install -r requirements.txt
-
-# 或者使用 pip 安装（如果发布到 PyPI）
-pip install lda-topic-modeling
 ```
 
-## 快速开始
+**Dependencies:**
+- **Operating Systems**: Linux, macOS, Windows
+- **Python**: >= 3.8
+- **Core Libraries**: `gensim` (4.x), `jieba`, `pyLDAvis`
 
-### 方式一：直接运行
+## Usage
+
+### 1. Command Line Interface (CLI)
+
+The tool supports multiple N-gram strategies to handle different corpus types.
 
 ```bash
-python run.py
+# General News (Fastest, No Bigram)
+python -m topic_model.cli analyze data/news.txt --ngram none -k 10 -o output
+
+# Mixed Reports (Balanced, Recommended)
+python -m topic_model.cli analyze data/reports.txt --ngram auto -k 10 -o output
+
+# Specialized Domain (Strict, e.g., Medical/Legal)
+python -m topic_model.cli analyze data/medical.txt --ngram strict -k 10 -o output
+
+# Auto-find optimal K
+python -m topic_model.cli analyze data/news.txt --ngram none --auto-k --k-min 5 --k-max 20
 ```
 
-### 方式二：使用 CLI
-
-```bash
-# 执行主题建模
-python -m topic_model.cli analyze data/sample_corpus.txt -k 3 -o output
-
-# 寻找最优主题数
-python -m topic_model.cli find-topics data/sample_corpus.txt --min 2 --max 10
-
-# 中文分词
-python -m topic_model.cli tokenize data/sample_corpus.txt -s data/stopwords.txt
-```
-
-### 方式三：Python API
+### 2. Python API
 
 ```python
 from topic_model.lda_model import LDATopicModel
 
-# 初始化模型
-model = LDATopicModel(num_topics=3, passes=15)
+# Initialize with 'auto' ngram mode
+model = LDATopicModel(num_topics=10, ngram_mode='auto')
 
-# 加载数据并运行
-results = model.run_analysis('data/sample_corpus.txt', output_dir='output')
-
-# 查看结果
-print(f"一致性得分: {results['coherence_score']:.4f}")
+# Run analysis
+report = model.run_analysis('data/news.txt', output_dir='output')
+print(f"Coherence Score: {report['model_info']['coherence_score']}")
 ```
 
-## CLI 命令说明
+## Algorithm Principle
 
-### analyze - 执行主题建模
+This project addresses the "Bigram Explosion" problem common in LDA implementations. By implementing a threshold-based Bigram filter and a post-processing stopword cleaner, we ensure that topics remain distinct and interpretable.
+
+See `docs/OPTIMIZATION_LOG.md` for a detailed discussion on algorithm optimization and the relevance of LDA in the LLM era.
+
+<a id="中文"></a>
+
+# LDA-Topic-Modeling
+
+一个轻量级、高效的 Python LDA 主题建模工具，专为中文文本优化。本项目通过**自适应 N-gram 预设模式**和**优化的词组检测算法**，解决了大规模语料中常见的噪声干扰问题。
+
+## 特性
+
+- **自适应 N-gram 模式**：提供 `none`, `auto`, `strict` 三种模式，平衡速度与专业术语识别精度。
+- **抗噪优化**：解决了传统 LDA 中 Bigram 检测导致的“词汇爆炸”和主题模糊问题。
+- **高一致性得分**：在 THUCNews 标准新闻语料上，$C_V$ 一致性得分稳定在 0.63 以上。
+- **完整工具链**：支持分词、训练、评估、可视化（pyLDAvis）及报告导出（JSON/CSV）。
+- **命令行支持**：提供简单易用的 CLI 接口，适合批量处理。
+
+## 安装
 
 ```bash
-python -m topic_model.cli analyze <输入文件> [选项]
-
-选项:
-  -k, --num-topics N      主题数量 (默认: 3)
-  -p, --passes N          训练轮数 (默认: 15)
-  -i, --iterations N      每轮迭代次数 (默认: 100)
-  --seed N                随机种子 (默认: 42)
-  -o, --output DIR        输出目录 (默认: output)
-  -s, --stopwords FILE    停用词文件
-  --save-model DIR        保存模型到指定目录
-  -v, --verbose           显示详细日志
+git clone https://github.com/Mal-Suen/LDA-Topic-Modeling.git
+cd LDA-Topic-Modeling
+pip install -r requirements.txt
 ```
 
-### find-topics - 寻找最优主题数
+**运行环境**:
+- **操作系统**: Linux, macOS, Windows
+- **Python**: >= 3.8
+- **核心依赖**: `gensim` (4.x), `jieba`, `pyLDAvis`
+
+## 用法
+
+### 1. 命令行 (CLI)
+
+工具针对不同类型的语料提供了几种预设模式：
 
 ```bash
-python -m topic_model.cli find-topics <输入文件> [选项]
+# 通用新闻（推荐模式，最快且无噪声）
+python -m topic_model.cli analyze data/news.txt --ngram none -k 10 -o output
 
-选项:
-  --min N      最小主题数 (默认: 2)
-  --max N      最大主题数 (默认: 10)
-  -p, --passes N    训练轮数 (默认: 15)
-  -s, --stopwords FILE  停用词文件
+# 混合文档（平衡模式，适合大多数场景）
+python -m topic_model.cli analyze data/reports.txt --ngram auto -k 10 -o output
+
+# 专业领域（严格模式，适合医疗、法律等术语密集场景）
+python -m topic_model.cli analyze data/medical.txt --ngram strict -k 10 -o output
+
+# 自动搜索最优主题数 K
+python -m topic_model.cli analyze data/news.txt --ngram none --auto-k --k-min 5 --k-max 20
 ```
 
-### tokenize - 中文分词
+### 2. Python API
 
-```bash
-python -m topic_model.cli tokenize [输入文件] [选项]
+```python
+from topic_model.lda_model import LDATopicModel
 
-选项:
-  -d, --delimiter STR   输出分隔符 (默认: 空格)
-  -s, --stopwords FILE  停用词文件
+# 初始化模型，使用自动 N-gram 模式
+model = LDATopicModel(num_topics=10, ngram_mode='auto')
+
+# 执行分析
+report = model.run_analysis('data/news.txt', output_dir='output')
+print(f"一致性得分: {report['model_info']['coherence_score']}")
 ```
 
-## 数据格式
+## 算法原理与优化
 
-输入文件为纯文本，每行一篇文档。词之间用空格分隔（或依赖内置分词）。
+本项目重点解决了传统 LDA 实现中常见的 **Bigram 爆炸**问题。
 
-```
-春节 联欢晚会 除夕 守岁 烟花 新年
-股市 大盘 下跌 散户 亏钱 套牢
-机器学习 算法 模型 训练 数据 特征
-```
+通过引入**阈值过滤**和**二次停用词清洗**，我们确保了复合词组（如“人工智能”）能被正确识别，同时过滤掉无意义的噪声组合（如“谢谢_专家”）。
 
-## 项目结构
-
-```
-LDA-Topic-Modeling/
-├── topic_model/          # 核心包
-│   ├── __init__.py
-│   ├── __main__.py       # CLI入口
-│   ├── cli.py            # 命令行解析
-│   └── lda_model.py      # LDA模型实现
-├── tests/                # 单元测试
-│   └── test_lda_model.py
-├── data/                 # 示例数据
-│   ├── sample_corpus.txt
-│   └── stopwords.txt
-├── output/               # 分析输出
-├── run.py                # 快速运行脚本
-├── requirements.txt
-├── pyproject.toml
-└── README.md
-```
-
-## 测试
-
-```bash
-pip install pytest
-pytest tests/ -v
-```
-
-## 依赖
-
-- Python >= 3.8
-- gensim >= 4.3.0
-- jieba >= 0.42.1
-- pyLDAvis >= 3.4.1
-- numpy >= 1.24.0
-
-## License
-
-MIT
+有关详细的算法优化过程以及在 LLM（大语言模型）普及的今天为何仍然需要 LDA 技术，请参阅项目文档：
+👉 `docs/OPTIMIZATION_LOG.md`

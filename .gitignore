@@ -9,7 +9,7 @@ dist/
 build/
 *.whl
 
-# 虚拟环境
+# Virtual environments
 .venv/
 venv/
 env/
@@ -20,17 +20,15 @@ env/
 *.swp
 *.swo
 
-# 输出
-output/
-*.html
-*.dict
-lda_model*
-
-# 测试
-.pytest_cache/
-.coverage
-htmlcov/
+# Data & Outputs
+output*/
+data/THUCNews.zip
+data/thuc_corpus.txt
+data/sogou_corpus.txt
+data/*.pkl
 
 # OS
 .DS_Store
 Thumbs.db
+"data/THUCNews/"  
+"output*/"  
