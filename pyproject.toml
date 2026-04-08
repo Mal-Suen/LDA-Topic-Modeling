@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lda-topic-modeling"
+version = "1.0.0"
+description = "基于gensim的中文LDA主题建模工具"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "malcolmsuen", email = "malcolmsuen@gmail.com"}
+]
+keywords = ["lda", "topic-modeling", "nlp", "gensim", "chinese"]
+dependencies = [
+    "gensim>=4.3.0",
+    "jieba>=0.42.1",
+    "pyLDAvis>=3.4.1",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+lda-tool = "topic_model.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["topic_model*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
