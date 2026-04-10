@@ -1,144 +1,63 @@
-# LDA-Topic-Modeling | LDA中文主题建模工具
+# LDA-Topic-Modeling
 
-<div align="center">
+> 从教学原型到工业级实践的 LDA 主题模型优化管线。基于严格的控制变量法与分层随机抽样，验证了 N-gram 序列依赖、停用词过滤与多随机种子机制对模型一致性（$C_V$）的显著提升。
 
-**Language / 语言选择:**
-[English](#english) | [中文](#中文)
+## 📖 项目简介
+隐狄利克雷分配（LDA）作为一种经典的无监督概率生成模型，在文本降维聚类与主题发现中仍具有明确的工业价值。本项目摒弃了硬编码参数与盲目引入复杂变换（如 TF-IDF 加权、强行先验注入）的传统误区，通过**受控实验**与**标准化数据预处理流水线**，实现了 LDA 模型在万级中文语料上的高置信度收敛。
+
+## 🚀 核心优化与验证结论
+经过多组独立重复实验（Seed=42, 88, 99），本项目确立了以下工程最佳实践：
+1. **停用词清洗优先于 N-gram 提取**：有效消除 PMI 计算中的句法噪声，$C_V$ 提升显著。
+2. **摒弃 TF-IDF 与强行先验**：维护狄利克雷-多项共轭结构的数学闭合性，避免后验推断失效。
+3. **多随机种子验证机制**：克服 ELBO 非凸优化导致的局部极值陷阱，输出统计学稳健结果。
+4. **LLM 时代的混合架构**：提出 `LDA(粗筛降维) + LLM(语义标注)` 的漏斗式管线，兼顾规模效应与语义深度。
+
+| 实验配置 | $C_V$ 得分 | 评估结论 |
+|:---|:---:|:---|
+| 基线 (Symmetric, Passes=10) | 0.5902 | 收敛至次优解 |
+| 优化流水线 (Passes=20) | **0.6245 ± 0.0229** | ✅ 统计学显著优于基线 |
+
+## 🛠️ 快速开始
+
+### 1. 环境依赖
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 数据准备
+将分词后的语料放置于 `data/` 目录下，或使用内置的 `scripts/process_thucnews.py` 处理原始 THUCNews 数据集。
+```text
+data/
+├── thuc_corpus.txt   # 预处理后的标准测试集
+└── stopwords.txt     # 中文停用词表
+```
+
+### 3. 模型训练与验证
+运行主程序执行标准化流水线（自动完成分层抽样、Bigram 提取、多种子训练与 $C_V$ 评估）：
+```bash
+python -m topic_model.cli --mode train --data data/thuc_corpus.txt --topics 14 --passes 20
+```
+
+## 📂 目录结构
+```text
+.
+├── topic_model/          # 核心算法包 (自适应 N-gram, 模型封装)
+├── scripts/              # 数据处理与评估脚本
+│   └── process_thucnews.py
+├── data/                 # 语料数据 (原始数据集已忽略)
+├── docs/                 # 技术文档与学术复盘
+├── requirements.txt      # 依赖清单
+└── README.md
+```
+
+## 📜 技术文档
+- **[重返隐狄利克雷分配：LDA 主题模型的工程化优化与大模型时代价值探讨](docs/REVISITING_LDA.md)**：详细记录算法演进、失效机理剖析与高置信度实验报告。
+
+## 🤝 LLM 时代的应用范式
+本项目推荐 **LDA + LLM 混合架构** 作为现代 NLP 管线的标准解法：
+1. **Layer 1 (LDA)**：本地低成本完成海量文档降维与 $K$ 个主题簇划分。
+2. **Layer 2 (LLM)**：仅针对 $K$ 组关键词调用大模型生成摘要/标签。
+> 该架构将 API 调用量从“文档级（百万次）”断崖式降低至“主题级（几十次）”，完美契合数据隐私与成本控制红线。
 
 ---
-</div>
-
-<a id="english"></a>
-
-# LDA-Topic-Modeling
-
-A lightweight and efficient Python library for Latent Dirichlet Allocation (LDA) topic modeling on Chinese text. This project employs **adaptive N-gram profiles** and **multi-coefficient voting** to solve common noise issues in large-scale corpora.
-
-## Features
-
-- **Adaptive N-gram Profiles**: Offers three modes (`none`, `auto`, `strict`) to balance between speed and terminology precision.
-- **Optimized Bigram Detection**: Prevents "Bigram Explosion" noise by strictly filtering compound words.
-- **High Coherence**: Achieves $C_V > 0.63$ on standard news corpora (THUCNews).
-- **Full Pipeline Support**: From segmentation to model training, coherence evaluation, and report export (JSON/CSV).
-- **CLI Interface**: Simple command-line usage for batch processing.
-
-## Installation
-
-```bash
-git clone https://github.com/Mal-Suen/LDA-Topic-Modeling.git
-cd LDA-Topic-Modeling
-pip install -r requirements.txt
-```
-
-**Dependencies:**
-- **Operating Systems**: Linux, macOS, Windows
-- **Python**: >= 3.8
-- **Core Libraries**: `gensim` (4.x), `jieba`, `pyLDAvis`
-
-## Usage
-
-### 1. Command Line Interface (CLI)
-
-The tool supports multiple N-gram strategies to handle different corpus types.
-
-```bash
-# General News (Fastest, No Bigram)
-python -m topic_model.cli analyze data/news.txt --ngram none -k 10 -o output
-
-# Mixed Reports (Balanced, Recommended)
-python -m topic_model.cli analyze data/reports.txt --ngram auto -k 10 -o output
-
-# Specialized Domain (Strict, e.g., Medical/Legal)
-python -m topic_model.cli analyze data/medical.txt --ngram strict -k 10 -o output
-
-# Auto-find optimal K
-python -m topic_model.cli analyze data/news.txt --ngram none --auto-k --k-min 5 --k-max 20
-```
-
-### 2. Python API
-
-```python
-from topic_model.lda_model import LDATopicModel
-
-# Initialize with 'auto' ngram mode
-model = LDATopicModel(num_topics=10, ngram_mode='auto')
-
-# Run analysis
-report = model.run_analysis('data/news.txt', output_dir='output')
-print(f"Coherence Score: {report['model_info']['coherence_score']}")
-```
-
-## Algorithm Principle
-
-This project addresses the "Bigram Explosion" problem common in LDA implementations. By implementing a threshold-based Bigram filter and a post-processing stopword cleaner, we ensure that topics remain distinct and interpretable.
-
-See `docs/OPTIMIZATION_LOG.md` for a detailed discussion on algorithm optimization and the relevance of LDA in the LLM era.
-
-<a id="中文"></a>
-
-# LDA-Topic-Modeling
-
-一个轻量级、高效的 Python LDA 主题建模工具，专为中文文本优化。本项目通过**自适应 N-gram 预设模式**和**优化的词组检测算法**，解决了大规模语料中常见的噪声干扰问题。
-
-## 特性
-
-- **自适应 N-gram 模式**：提供 `none`, `auto`, `strict` 三种模式，平衡速度与专业术语识别精度。
-- **抗噪优化**：解决了传统 LDA 中 Bigram 检测导致的“词汇爆炸”和主题模糊问题。
-- **高一致性得分**：在 THUCNews 标准新闻语料上，$C_V$ 一致性得分稳定在 0.63 以上。
-- **完整工具链**：支持分词、训练、评估、可视化（pyLDAvis）及报告导出（JSON/CSV）。
-- **命令行支持**：提供简单易用的 CLI 接口，适合批量处理。
-
-## 安装
-
-```bash
-git clone https://github.com/Mal-Suen/LDA-Topic-Modeling.git
-cd LDA-Topic-Modeling
-pip install -r requirements.txt
-```
-
-**运行环境**:
-- **操作系统**: Linux, macOS, Windows
-- **Python**: >= 3.8
-- **核心依赖**: `gensim` (4.x), `jieba`, `pyLDAvis`
-
-## 用法
-
-### 1. 命令行 (CLI)
-
-工具针对不同类型的语料提供了几种预设模式：
-
-```bash
-# 通用新闻（推荐模式，最快且无噪声）
-python -m topic_model.cli analyze data/news.txt --ngram none -k 10 -o output
-
-# 混合文档（平衡模式，适合大多数场景）
-python -m topic_model.cli analyze data/reports.txt --ngram auto -k 10 -o output
-
-# 专业领域（严格模式，适合医疗、法律等术语密集场景）
-python -m topic_model.cli analyze data/medical.txt --ngram strict -k 10 -o output
-
-# 自动搜索最优主题数 K
-python -m topic_model.cli analyze data/news.txt --ngram none --auto-k --k-min 5 --k-max 20
-```
-
-### 2. Python API
-
-```python
-from topic_model.lda_model import LDATopicModel
-
-# 初始化模型，使用自动 N-gram 模式
-model = LDATopicModel(num_topics=10, ngram_mode='auto')
-
-# 执行分析
-report = model.run_analysis('data/news.txt', output_dir='output')
-print(f"一致性得分: {report['model_info']['coherence_score']}")
-```
-
-## 算法原理与优化
-
-本项目重点解决了传统 LDA 实现中常见的 **Bigram 爆炸**问题。
-
-通过引入**阈值过滤**和**二次停用词清洗**，我们确保了复合词组（如“人工智能”）能被正确识别，同时过滤掉无意义的噪声组合（如“谢谢_专家”）。
-
-有关详细的算法优化过程以及在 LLM（大语言模型）普及的今天为何仍然需要 LDA 技术，请参阅项目文档：
-👉 `docs/OPTIMIZATION_LOG.md`
+*基于 2018 初始原型重构演进。Copyright © Mal-Suen*
