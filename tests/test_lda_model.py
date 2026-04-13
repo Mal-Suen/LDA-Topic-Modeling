@@ -4,6 +4,7 @@ LDA主题建模单元测试
 
 import os
 import sys
+import json
 import pytest
 from pathlib import Path
 
@@ -64,6 +65,12 @@ class TestLDATopicModel:
         assert len(docs) == 2
         assert len(model.documents) == 2
 
+    def test_load_corpus_not_found(self, tmp_path):
+        """测试文件不存在的情况"""
+        model = LDATopicModel()
+        docs = model.load_corpus("/nonexistent/path/file.txt")
+        assert docs == []
+
     def test_load_corpus_from_texts(self, sample_texts):
         """测试从文本列表加载"""
         model = LDATopicModel()
@@ -113,9 +120,28 @@ class TestLDATopicModel:
         """测试模型保存"""
         model_dir = str(tmp_path / "model")
         model.save_model(model_dir)
-        
+
         assert Path(model_dir, "lda_model").exists()
         assert Path(model_dir, "dictionary.dict").exists()
+
+    def test_export_report(self, model, tmp_path):
+        """测试报告导出"""
+        output_dir = str(tmp_path / "report")
+        report = model.export_report(output_dir)
+
+        # 检查报告结构
+        assert 'model_info' in report
+        assert 'topics' in report
+        assert 'topic_distribution' in report
+
+        # 检查文件是否生成
+        assert Path(output_dir, "report.json").exists()
+        assert Path(output_dir, "classifications.csv").exists()
+
+        # 验证JSON文件内容
+        with open(Path(output_dir, "report.json"), 'r', encoding='utf-8') as f:
+            saved_report = json.load(f)
+            assert saved_report['model_info']['num_topics'] == 2
 
     def test_run_analysis(self, tmp_path):
         """测试完整分析流程"""
@@ -130,10 +156,43 @@ class TestLDATopicModel:
         model = LDATopicModel(num_topics=2, passes=5)
         results = model.run_analysis(str(test_file), output_dir=output_dir)
 
-        assert 'topic_keywords' in results
-        assert 'doc_topics' in results
+        assert 'model_info' in results
+        assert 'topics' in results
         assert 'coherence_score' in results
         assert Path(output_dir, "lda_visualization.html").exists()
+
+    def test_reset_to_original_documents(self, sample_texts):
+        """测试重置为原始文档"""
+        model = LDATopicModel(num_topics=2, passes=5, ngram_mode='auto')
+        model.load_corpus_from_texts(sample_texts)
+        
+        # 应该有原始文档副本
+        assert len(model.original_documents) > 0
+        
+        # 重置
+        model.reset_to_original_documents()
+        assert len(model.documents) > 0
+        assert model.bigram_model is None
+
+    def test_load_corpus_streaming(self, tmp_path):
+        """测试流式加载"""
+        # 创建测试文件
+        test_file = tmp_path / "large_corpus.txt"
+        with open(test_file, 'w', encoding='utf-8') as f:
+            for i in range(100):
+                if i % 2 == 0:
+                    f.write("春节 年货 红包 团圆\n")
+                else:
+                    f.write("股市 大盘 下跌 散户\n")
+
+        model = LDATopicModel()
+        batches = list(model.load_corpus_streaming(str(test_file), batch_size=10))
+        
+        # 应该有多个批次
+        assert len(batches) > 0
+        # 总文档数应该是100
+        total_docs = sum(len(batch) for batch in batches)
+        assert total_docs == 100
 
 
 class TestStopwords:
@@ -152,6 +211,41 @@ class TestStopwords:
         """测试文件不存在时"""
         stopwords = LDATopicModel.load_stopwords("/nonexistent/path")
         assert stopwords == []
+
+
+class TestErrorHandling:
+    """错误处理测试"""
+
+    def test_empty_documents(self):
+        """测试空文档列表"""
+        model = LDATopicModel()
+        dic, corpus = model.build_dictionary_and_corpus()
+        assert dic is None
+        assert corpus is None
+
+    def test_load_corpus_empty_file(self, tmp_path):
+        """测试加载空文件"""
+        test_file = tmp_path / "empty.txt"
+        test_file.write_text("", encoding='utf-8')
+
+        model = LDATopicModel()
+        docs = model.load_corpus(str(test_file))
+        assert docs == []
+
+    def test_load_corpus_with_empty_lines(self, tmp_path):
+        """测试加载包含空行的文件"""
+        test_file = tmp_path / "with_empty.txt"
+        test_file.write_text("\n\n春节 年货\n\n股市 下跌\n\n", encoding='utf-8')
+
+        model = LDATopicModel()
+        docs = model.load_corpus(str(test_file))
+        assert len(docs) == 2
+
+    def test_ngram_mode_invalid(self):
+        """测试无效的N-gram模式"""
+        model = LDATopicModel(ngram_mode='invalid')
+        with pytest.raises(ValueError, match="未知的 ngram_mode"):
+            model.build_ngram_models([["test", "words"]])
 
 
 if __name__ == '__main__':

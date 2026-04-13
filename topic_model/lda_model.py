@@ -12,8 +12,9 @@ LDA主题建模核心模块 - 增强版
 import logging
 import json
 import csv
+import io
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Tuple, Optional, Any, Generator
 from collections import Counter
 
 import jieba
@@ -78,6 +79,7 @@ class LDATopicModel:
         self.corpus: Optional[List] = None
         self.lda_model: Optional[models.LdaModel] = None
         self.documents: List[List[str]] = []
+        self.original_documents: List[List[str]] = []  # 保存原始分词结果
         self.is_fitted = False
 
     @staticmethod
@@ -108,25 +110,30 @@ class LDATopicModel:
         构建Bigram模型（增强版）
         - 支持多种预设模式
         - 先检测词组，再过滤停用词
+        - 保存原始文档副本以便回溯
         """
+        # 保存原始文档副本
+        self.original_documents = [doc[:] for doc in documents]
+        logger.info(f"已保存原始文档副本: {len(documents)} 篇")
+
         # 根据模式设定参数
         if self.ngram_mode == "none":
             logger.info("N-gram 模式：无 (跳过 Bigram 检测)")
             return
-            
+
         elif self.ngram_mode == "auto":
             min_count, threshold = 15, 50.0
             logger.info("N-gram 模式：自动 (适合混合语料)")
-            
+
         elif self.ngram_mode == "strict":
             min_count, threshold = 8, 100.0
             logger.info("N-gram 模式：严格 (适合专业术语)")
-            
+
         else:
             raise ValueError(f"未知的 ngram_mode: {self.ngram_mode}")
 
         logger.info("构建 Bigram 模型...")
-        
+
         self.bigram_model = Phrases(
             documents,
             min_count=min_count,
@@ -135,7 +142,7 @@ class LDATopicModel:
             max_vocab_size=500000
         )
         bigram = Phraser(self.bigram_model)
-        
+
         # 应用 Bigram 后再次过滤停用词
         ngram_docs = []
         for doc in documents:
@@ -148,35 +155,127 @@ class LDATopicModel:
             ]
             if filtered:
                 ngram_docs.append(filtered)
-        
+
         logger.info(f"Bigram 检测完成，发现 {len(bigram.phrasegrams)} 个有效词组")
         logger.info(f"过滤后有效文档：{len(ngram_docs)} 篇")
-        
+
         self.documents = ngram_docs
         logger.info("N-gram 处理完成")
 
-    def load_corpus(self, file_path: str) -> List[List[str]]:
-        """加载语料数据，自动进行中文分词"""
+    def reset_to_original_documents(self) -> None:
+        """
+        重置为原始分词结果（不含N-gram）
+        可用于尝试不同的N-gram参数
+        """
+        if not self.original_documents:
+            logger.warning("没有可用的原始文档副本")
+            return
+        
+        self.documents = [doc[:] for doc in self.original_documents]
+        self.bigram_model = None
+        logger.info(f"已重置为原始文档: {len(self.documents)} 篇")
+
+    def load_corpus(self, file_path: str) -> Optional[List[List[str]]]:
+        """加载语料数据，自动进行中文分词
+        
+        Returns:
+            分词后的文档列表，失败时返回None
+        """
         path = Path(file_path)
         if not path.exists():
             logger.error(f"文件不存在: {file_path}")
             return []
 
-        with open(path, 'r', encoding='utf-8') as f:
-            raw_docs = [line.strip() for line in f if line.strip()]
+        try:
+            # 检查文件大小
+            file_size = path.stat().st_size
+            if file_size > 100 * 1024 * 1024:  # 100MB
+                logger.warning(f"文件较大 ({file_size / (1024*1024):.2f} MB)，建议使用 load_corpus_streaming() 方法")
+
+            with open(path, 'r', encoding='utf-8') as f:
+                raw_docs = [line.strip() for line in f if line.strip()]
+
+        except UnicodeDecodeError as e:
+            logger.error(f"文件编码错误，请使用UTF-8编码: {e}")
+            return []
+        except PermissionError:
+            logger.error(f"没有读取权限: {file_path}")
+            return []
+        except Exception as e:
+            logger.error(f"加载文件时发生错误: {e}")
+            return []
 
         logger.info(f"加载原始文档: {len(raw_docs)} 篇")
-        
+
         self.documents = [self.tokenize(doc) for doc in raw_docs]
         self.documents = [doc for doc in self.documents if doc]
         logger.info(f"分词完成，有效文档: {len(self.documents)} 篇")
-        
+
         # 构建N-gram
         self.build_ngram_models(self.documents)
         return self.documents
 
-    def load_corpus_from_texts(self, texts: List[str]) -> List[List[str]]:
-        """从字符串列表加载语料"""
+    def load_corpus_streaming(self, file_path: str, batch_size: int = 1000) -> Generator[List[str], None, None]:
+        """
+        流式加载语料数据（适合大文件）
+        
+        Args:
+            file_path: 输入文件路径
+            batch_size: 每批处理的文档数量
+            
+        Yields:
+            分批返回处理后的文档
+        """
+        path = Path(file_path)
+        if not path.exists():
+            logger.error(f"文件不存在: {file_path}")
+            return
+
+        try:
+            file_size = path.stat().st_size
+            logger.info(f"流式加载大文件: {file_size / (1024*1024):.2f} MB")
+        except Exception as e:
+            logger.error(f"获取文件信息失败: {e}")
+            return
+
+        batch = []
+        doc_count = 0
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # 分词并过滤
+                    tokens = self.tokenize(line)
+                    if tokens:
+                        batch.append(tokens)
+                        doc_count += 1
+
+                    # 达到批次大小，yield并清空
+                    if len(batch) >= batch_size:
+                        yield batch
+                        batch = []
+
+                # 返回剩余文档
+                if batch:
+                    yield batch
+
+        except UnicodeDecodeError as e:
+            logger.error(f"文件编码错误: {e}")
+        except Exception as e:
+            logger.error(f"流式加载失败: {e}")
+
+        logger.info(f"流式加载完成，共处理 {doc_count} 篇文档")
+
+    def load_corpus_from_texts(self, texts: List[str]) -> Optional[List[List[str]]]:
+        """从字符串列表加载语料
+        
+        Returns:
+            分词后的文档列表，失败时返回None
+        """
         self.documents = [self.tokenize(text) for text in texts]
         self.documents = [doc for doc in self.documents if doc]
         logger.info(f"分词完成，有效文档: {len(self.documents)} 篇")
@@ -188,8 +287,13 @@ class LDATopicModel:
         no_below: int = 5,
         no_above: float = 0.5,
         keep_n: int = 100000
-    ) -> Tuple[corpora.Dictionary, List]:
-        """构建词典和BoW语料库"""
+    ) -> Tuple[Optional[corpora.Dictionary], Optional[List]]:
+        """
+        构建词典和BoW语料库
+        
+        Returns:
+            (dictionary, corpus) 元组，失败时返回 (None, None)
+        """
         if not self.documents:
             logger.error("没有可用的文档数据")
             return None, None
@@ -208,8 +312,13 @@ class LDATopicModel:
         self.corpus = [self.dictionary.doc2bow(doc) for doc in self.documents]
         return self.dictionary, self.corpus
 
-    def train_model(self) -> models.LdaModel:
-        """训练LDA模型"""
+    def train_model(self) -> Optional[models.LdaModel]:
+        """
+        训练LDA模型
+        
+        Returns:
+            训练好的LDA模型，失败时返回None
+        """
         if self.corpus is None:
             self.build_dictionary_and_corpus()
 
@@ -229,18 +338,28 @@ class LDATopicModel:
 
     def find_optimal_topics(
         self,
-        topic_range: range = range(5, 21),
+        min_topics: int = 5,
+        max_topics: int = 20,
         step: int = 1
     ) -> List[Tuple[int, float]]:
         """
         寻找最优主题数量
         通过C_V一致性分数评估
+        
+        Args:
+            min_topics: 最小主题数
+            max_topics: 最大主题数
+            step: 搜索步长
+            
+        Returns:
+            List of (k, score) tuples
         """
+        topic_range = list(range(min_topics, max_topics + 1, step))
         logger.info(f"搜索最优主题数: {topic_range}")
         results = []
         original_num_topics = self.num_topics
-        
-        for k in list(topic_range)[::step]:
+
+        for k in topic_range:
             self.num_topics = k
             logger.info(f"\n尝试主题数 k={k}...")
             self.build_dictionary_and_corpus()
@@ -250,7 +369,7 @@ class LDATopicModel:
             logger.info(f"  k={k:3d}, C_V={score:.4f}")
 
         self.num_topics = original_num_topics
-        
+
         best_k = max(results, key=lambda x: x[1])
         logger.info(f"\n最优主题数: {best_k[0]} (C_V={best_k[1]:.4f})")
         return results
@@ -399,18 +518,22 @@ class LDATopicModel:
     def run_analysis(
         self,
         file_path: str,
-        output_dir: str = "output",
+        output_dir: str = "results",
         auto_find_k: bool = False,
-        k_range: range = range(5, 21)
+        k_min: int = 5,
+        k_max: int = 20,
+        k_step: int = 1
     ) -> Dict[str, Any]:
         """
         执行完整分析流程
-        
+
         Args:
             file_path: 输入文本文件路径
             output_dir: 输出目录
             auto_find_k: 是否自动搜索最优K
-            k_range: 搜索范围
+            k_min: 最小主题数
+            k_max: 最大主题数
+            k_step: 搜索步长
         """
         logger.info("=" * 50)
         logger.info("LDA 主题建模分析开始")
@@ -418,11 +541,15 @@ class LDATopicModel:
 
         # 1. 加载数据
         self.load_corpus(file_path)
-        
+
         # 2. 自动搜索最优K
         if auto_find_k:
-            logger.info(f"\n自动搜索最优主题数: {k_range}")
-            results = self.find_optimal_topics(k_range)
+            logger.info(f"\n自动搜索最优主题数: range({k_min}, {k_max}, {k_step})")
+            results = self.find_optimal_topics(
+                min_topics=k_min,
+                max_topics=k_max,
+                step=k_step
+            )
             best_k = max(results, key=lambda x: x[1])
             logger.info(f"✅ 最优主题数: {best_k[0]} (C_V={best_k[1]:.4f})")
             self.num_topics = best_k[0]

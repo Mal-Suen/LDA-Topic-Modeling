@@ -11,11 +11,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from topic_model.lda_model import LDATopicModel
+from topic_model import setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# 使用统一的日志配置
+setup_logging(level='INFO')
 
 
 def main():
@@ -34,7 +33,7 @@ def main():
 
     # 运行分析
     corpus_file = Path(__file__).parent / "data" / "sample_corpus.txt"
-    output_dir = Path(__file__).parent / "output"
+    output_dir = Path(__file__).parent / "results"
     
     results = model.run_analysis(str(corpus_file), output_dir=str(output_dir))
 

@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from topic_model.lda_model import LDATopicModel
+from topic_model import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +37,17 @@ def cmd_analyze(args):
     )
 
     # 运行分析
-    output_dir = args.output or "output"
-    
+    output_dir = args.output or "results"
+
     if auto_find_k:
-        k_range = range(args.k_min, args.k_max + 1, args.k_step)
-        results = model.run_analysis(args.input, output_dir=output_dir, auto_find_k=True, k_range=k_range)
+        results = model.run_analysis(
+            args.input,
+            output_dir=output_dir,
+            auto_find_k=True,
+            k_min=args.k_min,
+            k_max=args.k_max,
+            k_step=args.k_step
+        )
     else:
         results = model.run_analysis(args.input, output_dir=output_dir)
     
@@ -64,16 +71,63 @@ def cmd_find_topics(args):
     )
 
     model.load_corpus(args.input)
-    topic_range = range(args.min_topics, args.max_topics + 1)
-    results = model.find_optimal_topics(topic_range)
+    results = model.find_optimal_topics(
+        min_topics=args.min_topics,
+        max_topics=args.max_topics,
+        step=1
+    )
 
     print("\n主题数搜索结果")
     print("-" * 30)
     for k, score in results:
         print(f"  k={k:2d}, C_V={score:.4f}")
-    
+
     best_k = max(results, key=lambda x: x[1])
     print(f"\n最优主题数: {best_k[0]} (C_V={best_k[1]:.4f})")
+    return 0
+
+
+def cmd_verify(args):
+    """验证实验结果（复现论文中的实验）"""
+    # 加载停用词
+    stopwords = []
+    if args.stopwords:
+        stopwords = LDATopicModel.load_stopwords(args.stopwords)
+
+    # 使用论文中验证过的最佳配置
+    num_topics = args.num_topics or 14
+    seed = args.seed or 99
+    passes = args.passes or 20
+
+    logger.info(f"验证模式: num_topics={num_topics}, seed={seed}, passes={passes}")
+
+    model = LDATopicModel(
+        num_topics=num_topics,
+        passes=passes,
+        iterations=args.iterations,
+        random_state=seed,
+        custom_stopwords=stopwords,
+        ngram_mode='auto',
+    )
+
+    output_dir = args.output or "results"
+    results = model.run_analysis(args.input, output_dir=output_dir)
+
+    coherence = results['model_info']['coherence_score']
+    logger.info(f"验证完成 - C_V得分: {coherence:.4f}")
+
+    # 与论文基线对比
+    baseline = 0.5902
+    optimized = 0.6245
+    logger.info(f"基线得分: {baseline:.4f}")
+    logger.info(f"优化后平均得分: {optimized:.4f}")
+    logger.info(f"当前得分: {coherence:.4f}")
+
+    if coherence >= baseline:
+        logger.info("✅ 得分达到或超过基线水平")
+    else:
+        logger.warning("⚠️ 得分低于基线，建议检查数据和预处理流程")
+
     return 0
 
 
@@ -83,7 +137,14 @@ def cmd_tokenize(args):
         # 从标准输入读取
         text = sys.stdin.read()
     else:
-        text = Path(args.input).read_text(encoding='utf-8')
+        try:
+            text = Path(args.input).read_text(encoding='utf-8')
+        except FileNotFoundError:
+            logger.error(f"文件不存在: {args.input}")
+            return 1
+        except UnicodeDecodeError as e:
+            logger.error(f"文件编码错误: {e}")
+            return 1
 
     stopwords = []
     if args.stopwords:
@@ -91,12 +152,12 @@ def cmd_tokenize(args):
 
     model = LDATopicModel(custom_stopwords=stopwords)
     words = model.tokenize(text)
-    
+
     if args.delimiter:
         print(args.delimiter.join(words))
     else:
         print(" ".join(words))
-    
+
     return 0
 
 
@@ -107,10 +168,13 @@ def main():
         epilog="""
 示例:
   # 执行主题建模分析
-  python -m topic_model.cli analyze data/corpus.txt -k 5 -o output
+  python -m topic_model.cli analyze data/corpus.txt -k 5 -o results
 
   # 寻找最优主题数
   python -m topic_model.cli find-topics data/corpus.txt --min 2 --max 10
+
+  # 验证实验结果（复现论文）
+  python -m topic_model.cli verify data/corpus.txt --seed 99
 
   # 中文分词
   python -m topic_model.cli tokenize -s stopwords.txt input.txt
@@ -135,8 +199,8 @@ def main():
                                help='每轮迭代次数 (默认: 100)')
     analyze_parser.add_argument('--seed', type=int, default=42,
                                help='随机种子 (默认: 42)')
-    analyze_parser.add_argument('-o', '--output', type=str, default='output',
-                               help='输出目录 (默认: output)')
+    analyze_parser.add_argument('-o', '--output', type=str, default='results',
+                               help='输出目录 (默认: results)')
     analyze_parser.add_argument('--save-model', type=str,
                                help='保存模型到指定目录')
     analyze_parser.add_argument('--auto-k', action='store_true',
@@ -161,6 +225,20 @@ def main():
     ft_parser.add_argument('-p', '--passes', type=int, default=15,
                           help='训练轮数 (默认: 15)')
 
+    # verify 命令
+    verify_parser = subparsers.add_parser('verify', help='验证实验结果')
+    verify_parser.add_argument('input', help='输入文本文件')
+    verify_parser.add_argument('-k', '--num-topics', type=int, default=14,
+                              help='主题数量 (默认: 14)')
+    verify_parser.add_argument('-p', '--passes', type=int, default=20,
+                              help='训练轮数 (默认: 20)')
+    verify_parser.add_argument('-i', '--iterations', type=int, default=100,
+                              help='每轮迭代次数 (默认: 100)')
+    verify_parser.add_argument('--seed', type=int, default=99,
+                              help='随机种子 (默认: 99)')
+    verify_parser.add_argument('-o', '--output', type=str, default='results',
+                              help='输出目录 (默认: results)')
+
     # tokenize 命令
     tok_parser = subparsers.add_parser('tokenize', help='中文分词')
     tok_parser.add_argument('input', nargs='?', default='-',
@@ -174,17 +252,15 @@ def main():
         parser.print_help()
         return 1
 
-    # 配置日志
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    # 使用统一的日志配置
+    log_level = 'DEBUG' if args.verbose else 'INFO'
+    setup_logging(level=log_level)
 
     # 路由到对应命令
     commands = {
         'analyze': cmd_analyze,
         'find-topics': cmd_find_topics,
+        'verify': cmd_verify,
         'tokenize': cmd_tokenize,
     }
 
