@@ -95,10 +95,14 @@ docker run -v $(pwd)/data:/app/data -v $(pwd)/results:/app/results \
 
 ```text
 LDA-Topic-Modeling/
-├── data/                  # Datasets (THUCNews subset)
+├── data/                  # Datasets & processing
+│   ├── THUCNews/          # Raw THUCNews dataset
+│   ├── thuc_corpus.txt    # Processed corpus (14k docs)
+│   ├── sample_corpus.txt  # Sample corpus for testing
+│   ├── stopwords.txt      # Chinese stopwords
+│   └── process_thucnews.py # Data preprocessing script
 ├── docs/
 │   └── REVISITING_LDA.md  # Comprehensive engineering analysis
-├── scripts/               # Processing scripts
 ├── topic_model/           # Core Python package
 │   ├── __init__.py        # Package init & logging
 │   ├── __main__.py        # Entry point
@@ -106,6 +110,10 @@ LDA-Topic-Modeling/
 │   └── lda_model.py       # Core LDA class
 ├── tests/                 # Unit tests
 ├── results/               # Model outputs
+│   ├── model/             # Trained LDA model files
+│   ├── report.json        # Analysis report
+│   ├── classifications.csv # Document classifications
+│   └── lda_visualization.html # Interactive visualization
 ├── .github/workflows/     # CI/CD pipeline
 ├── Dockerfile             # Multi-stage Docker build
 ├── README.md              # This file
@@ -205,10 +213,14 @@ docker run -v $(pwd)/data:/app/data -v $(pwd)/results:/app/results \
 
 ```text
 LDA-Topic-Modeling/
-├── data/                  # 数据集（THUCNews 子集）
+├── data/                  # 数据集与处理
+│   ├── THUCNews/          # 原始 THUCNews 数据集
+│   ├── thuc_corpus.txt    # 处理后语料（1.4万篇）
+│   ├── sample_corpus.txt  # 测试用示例语料
+│   ├── stopwords.txt      # 中文停用词表
+│   └── process_thucnews.py # 数据预处理脚本
 ├── docs/
 │   └── REVISITING_LDA.md  # 全面工程分析报告
-├── scripts/               # 处理脚本
 ├── topic_model/           # 核心 Python 包
 │   ├── __init__.py        # 包初始化与日志配置
 │   ├── __main__.py        # 入口点
@@ -216,6 +228,10 @@ LDA-Topic-Modeling/
 │   └── lda_model.py       # LDA 核心类
 ├── tests/                 # 单元测试
 ├── results/               # 模型输出
+│   ├── model/             # 训练好的 LDA 模型文件
+│   ├── report.json        # 分析报告
+│   ├── classifications.csv # 文档分类结果
+│   └── lda_visualization.html # 交互式可视化
 ├── .github/workflows/     # CI/CD 流水线
 ├── Dockerfile             # 多阶段 Docker 构建
 ├── README.md              # 本文件

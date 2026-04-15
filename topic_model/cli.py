@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CLI命令行入口
-"""
+CLI命令行接口
 
+命令:
+    analyze      执行主题建模分析
+    find-topics  搜索最优主题数量
+    verify       验证实验结果（复现论文）
+    tokenize     中文分词工具
+
+示例:
+    python -m topic_model.cli analyze data/corpus.txt -k 5 -o results
+    python -m topic_model.cli find-topics data/corpus.txt --min 2 --max 10
+    python -m topic_model.cli verify data/corpus.txt --seed 99
+"""
 import argparse
 import logging
 import sys
@@ -17,16 +27,13 @@ logger = logging.getLogger(__name__)
 
 def cmd_analyze(args):
     """执行主题建模分析"""
-    # 加载停用词
     stopwords = []
     if args.stopwords:
         stopwords = LDATopicModel.load_stopwords(args.stopwords)
 
-    # 确定主题数
     num_topics = args.num_topics if args.num_topics else 10
     auto_find_k = args.auto_k
-    
-    # 初始化模型
+
     model = LDATopicModel(
         num_topics=num_topics,
         passes=args.passes,
@@ -36,10 +43,10 @@ def cmd_analyze(args):
         ngram_mode=args.ngram,
     )
 
-    # 运行分析
     output_dir = args.output or "results"
 
     if auto_find_k:
+        # 自动搜索最优主题数
         results = model.run_analysis(
             args.input,
             output_dir=output_dir,
@@ -50,22 +57,21 @@ def cmd_analyze(args):
         )
     else:
         results = model.run_analysis(args.input, output_dir=output_dir)
-    
-    # 保存模型（可选）
+
     if args.save_model:
         model.save_model(args.save_model)
-    
+
     return 0
 
 
 def cmd_find_topics(args):
-    """寻找最优主题数"""
+    """寻找最优主题数（通过C_V一致性分数评估）"""
     stopwords = []
     if args.stopwords:
         stopwords = LDATopicModel.load_stopwords(args.stopwords)
 
     model = LDATopicModel(
-        num_topics=2,
+        num_topics=2,  # 临时值，后续会遍历
         passes=args.passes,
         custom_stopwords=stopwords
     )
@@ -77,6 +83,7 @@ def cmd_find_topics(args):
         step=1
     )
 
+    # 输出搜索结果
     print("\n主题数搜索结果")
     print("-" * 30)
     for k, score in results:
@@ -88,13 +95,25 @@ def cmd_find_topics(args):
 
 
 def cmd_verify(args):
-    """验证实验结果（复现论文中的实验）"""
-    # 加载停用词
+    """
+    验证实验结果（复现论文）
+    
+    使用论文验证的最佳配置:
+        - num_topics = 14
+        - random_state = 99
+        - passes = 20
+        - ngram_mode = 'auto'
+    
+    基线分数:
+        - baseline: 0.5902 (基线配置)
+        - optimized: 0.6245 (优化后平均)
+        - best: 0.6505 (最佳单次运行)
+    """
     stopwords = []
     if args.stopwords:
         stopwords = LDATopicModel.load_stopwords(args.stopwords)
 
-    # 使用论文中验证过的最佳配置
+    # 使用论文验证的配置（可通过参数覆盖）
     num_topics = args.num_topics or 14
     seed = args.seed or 99
     passes = args.passes or 20
@@ -113,15 +132,14 @@ def cmd_verify(args):
     output_dir = args.output or "results"
     results = model.run_analysis(args.input, output_dir=output_dir)
 
-    coherence = results['model_info']['coherence_score']
-    logger.info(f"验证完成 - C_V得分: {coherence:.4f}")
-
     # 与论文基线对比
+    coherence = results['model_info']['coherence_score']
     baseline = 0.5902
     optimized = 0.6245
+
+    logger.info(f"验证完成 - C_V得分: {coherence:.4f}")
     logger.info(f"基线得分: {baseline:.4f}")
     logger.info(f"优化后平均得分: {optimized:.4f}")
-    logger.info(f"当前得分: {coherence:.4f}")
 
     if coherence >= baseline:
         logger.info("✅ 得分达到或超过基线水平")
@@ -132,9 +150,9 @@ def cmd_verify(args):
 
 
 def cmd_tokenize(args):
-    """中文分词工具"""
+    """中文分词工具（支持管道输入）"""
+    # 从文件或标准输入读取
     if not args.input or args.input == "-":
-        # 从标准输入读取
         text = sys.stdin.read()
     else:
         try:
@@ -167,20 +185,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 执行主题建模分析
   python -m topic_model.cli analyze data/corpus.txt -k 5 -o results
-
-  # 寻找最优主题数
   python -m topic_model.cli find-topics data/corpus.txt --min 2 --max 10
-
-  # 验证实验结果（复现论文）
   python -m topic_model.cli verify data/corpus.txt --seed 99
-
-  # 中文分词
   python -m topic_model.cli tokenize -s stopwords.txt input.txt
         """
     )
 
+    # 全局参数
     parser.add_argument('-v', '--verbose', action='store_true',
                        help='显示详细日志')
     parser.add_argument('-s', '--stopwords', type=str,
@@ -188,11 +200,11 @@ def main():
 
     subparsers = parser.add_subparsers(dest='command', help='可用命令')
 
-    # analyze 命令
+    # analyze 子命令
     analyze_parser = subparsers.add_parser('analyze', help='执行主题建模分析')
     analyze_parser.add_argument('input', help='输入文本文件（每行一篇文档）')
     analyze_parser.add_argument('-k', '--num-topics', type=int, default=None,
-                               help='主题数量 (默认: 自动搜索)')
+                               help='主题数量 (默认: 10)')
     analyze_parser.add_argument('-p', '--passes', type=int, default=15,
                                help='训练轮数 (默认: 15)')
     analyze_parser.add_argument('-i', '--iterations', type=int, default=100,
@@ -215,7 +227,7 @@ def main():
                                choices=['none', 'auto', 'strict'],
                                help='N-gram 模式 (默认: auto)')
 
-    # find-topics 命令
+    # find-topics 子命令
     ft_parser = subparsers.add_parser('find-topics', help='寻找最优主题数')
     ft_parser.add_argument('input', help='输入文本文件')
     ft_parser.add_argument('--min', type=int, default=2, dest='min_topics',
@@ -225,7 +237,7 @@ def main():
     ft_parser.add_argument('-p', '--passes', type=int, default=15,
                           help='训练轮数 (默认: 15)')
 
-    # verify 命令
+    # verify 子命令
     verify_parser = subparsers.add_parser('verify', help='验证实验结果')
     verify_parser.add_argument('input', help='输入文本文件')
     verify_parser.add_argument('-k', '--num-topics', type=int, default=14,
@@ -239,7 +251,7 @@ def main():
     verify_parser.add_argument('-o', '--output', type=str, default='results',
                               help='输出目录 (默认: results)')
 
-    # tokenize 命令
+    # tokenize 子命令
     tok_parser = subparsers.add_parser('tokenize', help='中文分词')
     tok_parser.add_argument('input', nargs='?', default='-',
                            help='输入文件（默认读取标准输入）')
@@ -252,11 +264,11 @@ def main():
         parser.print_help()
         return 1
 
-    # 使用统一的日志配置
+    # 配置日志级别
     log_level = 'DEBUG' if args.verbose else 'INFO'
     setup_logging(level=log_level)
 
-    # 路由到对应命令
+    # 命令路由
     commands = {
         'analyze': cmd_analyze,
         'find-topics': cmd_find_topics,

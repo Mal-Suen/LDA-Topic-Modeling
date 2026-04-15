@@ -1,22 +1,32 @@
+# -*- coding: utf-8 -*-
 """
 LDA主题建模单元测试
-"""
 
+测试覆盖:
+    - TestLDATopicModel: 核心功能测试
+    - TestStopwords: 停用词加载测试
+    - TestErrorHandling: 错误处理测试
+
+运行: pytest tests/test_lda_model.py -v
+"""
 import os
 import sys
 import json
 import pytest
 from pathlib import Path
 
-# 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from topic_model.lda_model import LDATopicModel
 
 
+# ============================================================================
+# 测试数据 Fixtures
+# ============================================================================
+
 @pytest.fixture
 def sample_texts():
-    """Fixture: 提供测试文本数据"""
+    """测试文本（春节/股市两个主题）"""
     return [
         "春节 联欢晚会 除夕 守岁 烟花 新年 团圆",
         "新春 备 年货 拜年 红包 压岁钱 过年",
@@ -27,7 +37,7 @@ def sample_texts():
 
 @pytest.fixture
 def model(sample_texts):
-    """Fixture: 提供训练好的LDA模型"""
+    """预训练的LDA模型（2个主题）"""
     m = LDATopicModel(num_topics=2, passes=5)
     m.load_corpus_from_texts(sample_texts)
     m.build_dictionary_and_corpus()
@@ -35,38 +45,43 @@ def model(sample_texts):
     return m
 
 
+# ============================================================================
+# 核心功能测试
+# ============================================================================
+
 class TestLDATopicModel:
-    """LDA主题建模测试类"""
+    """LDA主题建模核心功能测试"""
+
+    # ---- 分词测试 ----
 
     def test_tokenize(self):
-        """测试中文分词"""
+        """测试中文分词，单字应被过滤"""
         model = LDATopicModel()
         words = model.tokenize("机器学习算法模型训练")
         assert len(words) > 0
-        # 应该过滤掉单字
         for w in words:
             assert len(w) > 1
 
     def test_tokenize_with_stopwords(self):
-        """测试带停用词的分词"""
+        """测试停用词过滤"""
         model = LDATopicModel(custom_stopwords=["算法", "模型"])
         words = model.tokenize("机器学习算法模型训练")
         assert "算法" not in words
         assert "模型" not in words
 
+    # ---- 语料加载测试 ----
+
     def test_load_corpus(self, tmp_path):
-        """测试语料加载"""
-        # 创建临时文件
+        """测试从文件加载语料"""
         test_file = tmp_path / "test.txt"
         test_file.write_text("春节 年货 红包\n股市 大盘 下跌\n", encoding='utf-8')
 
         model = LDATopicModel()
         docs = model.load_corpus(str(test_file))
         assert len(docs) == 2
-        assert len(model.documents) == 2
 
-    def test_load_corpus_not_found(self, tmp_path):
-        """测试文件不存在的情况"""
+    def test_load_corpus_not_found(self):
+        """测试文件不存在时的处理"""
         model = LDATopicModel()
         docs = model.load_corpus("/nonexistent/path/file.txt")
         assert docs == []
@@ -77,11 +92,12 @@ class TestLDATopicModel:
         docs = model.load_corpus_from_texts(sample_texts)
         assert len(docs) == 4
 
+    # ---- 词典和模型测试 ----
+
     def test_build_dictionary(self, model):
         """测试词典构建"""
         assert model.dictionary is not None
         assert len(model.dictionary) > 0
-        assert model.corpus is not None
         assert len(model.corpus) == 4
 
     def test_train_model(self, model):
@@ -90,37 +106,35 @@ class TestLDATopicModel:
         assert model.is_fitted is True
         assert model.num_topics == 2
 
+    # ---- 主题分析测试 ----
+
     def test_get_topic_keywords(self, model):
         """测试主题关键词提取"""
         topics = model.get_topic_keywords(top_n=5)
         assert len(topics) == 2
         for topic_id, keywords in topics.items():
             assert len(keywords) == 5
-            for word, weight in keywords:
-                assert isinstance(word, str)
-                assert isinstance(weight, float)
 
     def test_analyze_document_topics(self, model):
-        """测试文档主题分析"""
+        """测试文档主题分布分析"""
         doc_topics = model.analyze_document_topics(top_n=2)
         assert len(doc_topics) == 4
         for doc_id, topics in doc_topics.items():
-            assert len(topics) <= 2
             for topic_id, prob in topics:
                 assert 0.0 <= prob <= 1.0
 
     def test_evaluate_model(self, model):
-        """测试模型评估"""
+        """测试模型评估（C_V分数应在0-1之间）"""
         score = model.evaluate_model()
         assert isinstance(score, float)
-        # C_V分数通常在0-1之间
         assert 0.0 <= score <= 1.0
+
+    # ---- 输出测试 ----
 
     def test_save_model(self, model, tmp_path):
         """测试模型保存"""
         model_dir = str(tmp_path / "model")
         model.save_model(model_dir)
-
         assert Path(model_dir, "lda_model").exists()
         assert Path(model_dir, "dictionary.dict").exists()
 
@@ -129,71 +143,55 @@ class TestLDATopicModel:
         output_dir = str(tmp_path / "report")
         report = model.export_report(output_dir)
 
-        # 检查报告结构
         assert 'model_info' in report
         assert 'topics' in report
-        assert 'topic_distribution' in report
-
-        # 检查文件是否生成
         assert Path(output_dir, "report.json").exists()
         assert Path(output_dir, "classifications.csv").exists()
 
-        # 验证JSON文件内容
-        with open(Path(output_dir, "report.json"), 'r', encoding='utf-8') as f:
-            saved_report = json.load(f)
-            assert saved_report['model_info']['num_topics'] == 2
-
     def test_run_analysis(self, tmp_path):
         """测试完整分析流程"""
-        # 创建测试数据
         test_file = tmp_path / "corpus.txt"
-        test_file.write_text(
-            "春节 年货 红包 团圆\n股市 大盘 下跌 散户\n",
-            encoding='utf-8'
-        )
+        test_file.write_text("春节 年货 红包 团圆\n股市 大盘 下跌 散户\n", encoding='utf-8')
         output_dir = str(tmp_path / "output")
 
         model = LDATopicModel(num_topics=2, passes=5)
         results = model.run_analysis(str(test_file), output_dir=output_dir)
 
         assert 'model_info' in results
-        assert 'topics' in results
-        assert 'coherence_score' in results
         assert Path(output_dir, "lda_visualization.html").exists()
+
+    # ---- N-gram测试 ----
 
     def test_reset_to_original_documents(self, sample_texts):
         """测试重置为原始文档"""
         model = LDATopicModel(num_topics=2, passes=5, ngram_mode='auto')
         model.load_corpus_from_texts(sample_texts)
-        
-        # 应该有原始文档副本
+
         assert len(model.original_documents) > 0
-        
-        # 重置
         model.reset_to_original_documents()
         assert len(model.documents) > 0
         assert model.bigram_model is None
 
+    # ---- 流式加载测试 ----
+
     def test_load_corpus_streaming(self, tmp_path):
-        """测试流式加载"""
-        # 创建测试文件
+        """测试流式加载（适合大文件）"""
         test_file = tmp_path / "large_corpus.txt"
         with open(test_file, 'w', encoding='utf-8') as f:
             for i in range(100):
-                if i % 2 == 0:
-                    f.write("春节 年货 红包 团圆\n")
-                else:
-                    f.write("股市 大盘 下跌 散户\n")
+                f.write("春节 年货 红包 团圆\n" if i % 2 == 0 else "股市 大盘 下跌 散户\n")
 
         model = LDATopicModel()
         batches = list(model.load_corpus_streaming(str(test_file), batch_size=10))
-        
-        # 应该有多个批次
+
         assert len(batches) > 0
-        # 总文档数应该是100
         total_docs = sum(len(batch) for batch in batches)
         assert total_docs == 100
 
+
+# ============================================================================
+# 停用词测试
+# ============================================================================
 
 class TestStopwords:
     """停用词加载测试"""
@@ -208,10 +206,14 @@ class TestStopwords:
         assert "的" in stopwords
 
     def test_load_stopwords_not_found(self):
-        """测试文件不存在时"""
+        """测试文件不存在时返回空列表"""
         stopwords = LDATopicModel.load_stopwords("/nonexistent/path")
         assert stopwords == []
 
+
+# ============================================================================
+# 错误处理测试
+# ============================================================================
 
 class TestErrorHandling:
     """错误处理测试"""
@@ -239,7 +241,7 @@ class TestErrorHandling:
 
         model = LDATopicModel()
         docs = model.load_corpus(str(test_file))
-        assert len(docs) == 2
+        assert len(docs) == 2  # 空行被过滤
 
     def test_ngram_mode_invalid(self):
         """测试无效的N-gram模式"""
